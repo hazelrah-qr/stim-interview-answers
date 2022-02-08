@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hazelrah-qr/stim-test/payment"
+	"github.com/hazelrah-qr/stim-interview-answers/payment"
 )
 
 func main() {
@@ -33,6 +33,7 @@ func main() {
 			client.ProcessPaymentPage(filterDate, fmt.Sprint(page))
 		}()
 	}
+
 	wg.Wait()
 	close(c)
 
