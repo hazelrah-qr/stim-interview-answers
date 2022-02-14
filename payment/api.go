@@ -2,25 +2,28 @@ package payment
 
 import (
 	"bufio"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
 )
 
-const url string = "https://stim-codetest-stimseassets.ew.r.appspot.com/"
-
-type StimPaymentClient struct {
-	client     *http.Client
-	processing chan<- int64
+type StimApiClient struct {
+	client *http.Client
+	url    string
+	sum    chan<- int64
 }
 
-func NewClient(c chan<- int64) *StimPaymentClient {
-	client := &http.Client{Timeout: time.Second * 4}
-	return &StimPaymentClient{client: client, processing: c}
+// Create a new stim api client
+func NewClient(url string, c chan<- int64) *StimApiClient {
+	client := &http.Client{Timeout: time.Second * 6}
+	return &StimApiClient{client: client, sum: c, url: url}
 }
 
-func (s *StimPaymentClient) ProcessPaymentPage(filterDate string, page string) {
-	req, err := http.NewRequest(http.MethodGet, url+page, nil)
+// Process single page of payments
+func (s *StimApiClient) ProcessPaymentPage(filterDate string, page string) {
+	req, err := http.NewRequest(http.MethodGet, s.url+page, nil)
 
 	if err != nil {
 		panic(err)
@@ -35,36 +38,38 @@ func (s *StimPaymentClient) ProcessPaymentPage(filterDate string, page string) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		panic(err)
+		fmt.Printf("Failed to execute request %s (%s)", s.url+page, resp.Status)
+		os.Exit(1)
 	}
 
-	processor := NewProcessor(filterDate)
-
-	scanner := bufio.NewScanner(resp.Body)
-
-	for scanner.Scan() {
-		text := scanner.Text()
-		if text == "" || text == "date,name,amount" {
-			continue
-		}
-		processor.ProcessPayment(ParsePayment(text))
-	}
-	s.processing <- processor.Sum
+	s.process(resp.Body, filterDate)
 }
 
-func (s *StimPaymentClient) ProcessPaymentFile(filterDate string, page string) {
+// Process single file of payments
+func (s *StimApiClient) ProcessPaymentFile(filterDate string, page string) {
 	file, _ := os.Open("data/" + page + ".csv")
-
 	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	processor := NewProcessor(filterDate)
+	s.process(file, filterDate)
+}
+
+func (s *StimApiClient) process(body io.Reader, filter string) {
+	scanner := bufio.NewScanner(body)
+	processor := NewProcessor(filter)
 
 	for scanner.Scan() {
 		text := scanner.Text()
 		if text == "" || text == "date,name,amount" {
 			continue
 		}
-		processor.ProcessPayment(ParsePayment(text))
+
+		p, err := ParsePayment(text)
+
+		if err != nil {
+			fmt.Print(err.Error())
+			continue
+		}
+
+		processor.ProcessPayment(p)
 	}
-	s.processing <- processor.Sum
+	s.sum <- processor.Sum
 }
